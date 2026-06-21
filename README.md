@@ -1,5 +1,7 @@
 GameDeal Finder
 
+Live site: https://code2-gules.vercel.app
+
 ## Supabase setup
 
 Environment files are intentionally excluded from Git. Copy `.env.example` to `.env.local`

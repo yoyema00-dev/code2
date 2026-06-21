@@ -41,3 +41,4 @@ Thumbs.db
 # Supabase local files that may contain sensitive local config
 supabase/.branches/
 supabase/.temp/
+.vercel
