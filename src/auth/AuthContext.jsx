@@ -169,7 +169,7 @@ export function AuthProvider({ children }) {
       password,
       options: {
         data: { full_name: cleanName },
-        emailRedirectTo: `${window.location.origin}/login`,
+        emailRedirectTo: window.location.origin,
       },
     });
 
