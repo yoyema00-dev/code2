@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Link,
   NavLink,
@@ -130,6 +130,7 @@ function Layout({ wishlistCount, user, onLogout, children }) {
           {user ? (
             <>
               <NavLink to="/profile">החשבון שלי</NavLink>
+              {user.isAdmin && <NavLink to="/admin">ניהול משתמשים</NavLink>}
               <button type="button" className="nav-button" onClick={onLogout}>
                 התנתקות
               </button>
@@ -184,6 +185,24 @@ function ProtectedRoute({ children }) {
 
   if (!isAuthenticated) {
     return <Navigate to="/login" replace state={{ from: location }} />;
+  }
+
+  return children;
+}
+
+function AdminRoute({ children }) {
+  const { user, isLoading } = useAuth();
+
+  if (isLoading) {
+    return <LoadingState />;
+  }
+
+  if (!user) {
+    return <Navigate to="/login" replace />;
+  }
+
+  if (!user.isAdmin) {
+    return <Navigate to="/profile" replace />;
   }
 
   return children;
@@ -480,6 +499,125 @@ function ProfilePage({ wishlistCount }) {
           <button type="submit">שמירת שינויים</button>
         </form>
       </div>
+    </section>
+  );
+}
+
+function AdminPage() {
+  const { user } = useAuth();
+  const [users, setUsers] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [deletingId, setDeletingId] = useState("");
+  const [pendingDeleteId, setPendingDeleteId] = useState("");
+  const [status, setStatus] = useState("");
+
+  const loadUsers = useCallback(async () => {
+    setIsLoading(true);
+    setStatus("");
+
+    const { data, error } = await supabase.functions.invoke("admin-users", {
+      method: "GET",
+    });
+
+    if (error) {
+      setStatus("לא ניתן לטעון את המשתמשים כרגע.");
+      setIsLoading(false);
+      return;
+    }
+
+    setUsers(data.users ?? []);
+    setIsLoading(false);
+  }, []);
+
+  useEffect(() => {
+    loadUsers();
+  }, [loadUsers]);
+
+  const deleteUser = async (targetUser) => {
+    if (pendingDeleteId !== targetUser.id) {
+      setPendingDeleteId(targetUser.id);
+      setStatus(`לחצו שוב כדי למחוק לצמיתות את ${targetUser.email}.`);
+      return;
+    }
+
+    setDeletingId(targetUser.id);
+    setStatus("");
+
+    const { error } = await supabase.functions.invoke("admin-users", {
+      method: "DELETE",
+      body: { userId: targetUser.id },
+    });
+
+    if (error) {
+      setStatus("המחיקה נכשלה. המשתמש לא נמחק.");
+      setDeletingId("");
+      return;
+    }
+
+    setUsers((current) => current.filter((item) => item.id !== targetUser.id));
+    setPendingDeleteId("");
+    setDeletingId("");
+    setStatus(`המשתמש ${targetUser.email} נמחק לצמיתות.`);
+  };
+
+  return (
+    <section className="section admin-page">
+      <div className="section-heading">
+        <div>
+          <p className="eyebrow">Admin</p>
+          <h1>ניהול משתמשים</h1>
+          <p>מחיקה מסירה לצמיתות את החשבון, הפרופיל ורשימת המעקב.</p>
+        </div>
+        <button type="button" className="secondary-action" onClick={loadUsers} disabled={isLoading}>
+          רענון
+        </button>
+      </div>
+
+      {status && <p className={status.includes("נמחק לצמיתות") ? "form-success" : "form-alert"}>{status}</p>}
+
+      {isLoading ? (
+        <LoadingState text="טוען משתמשים..." />
+      ) : (
+        <div className="admin-users-card">
+          <div className="admin-users-header">
+            <strong>{users.length} משתמשים</strong>
+            <span>רק חשבונות מנהל יכולים לגשת לעמוד הזה</span>
+          </div>
+          <div className="admin-users-list">
+            {users.map((account) => {
+              const isCurrentUser = account.id === user.id;
+              const isConfirming = pendingDeleteId === account.id;
+
+              return (
+                <article className="admin-user-row" key={account.id}>
+                  <div>
+                    <strong>{account.fullName || account.email}</strong>
+                    <span>{account.email}</span>
+                    <small>נרשם: {new Date(account.createdAt).toLocaleDateString("he-IL")}</small>
+                  </div>
+                  <div className="admin-user-actions">
+                    {account.isAdmin && <span className="admin-badge">מנהל</span>}
+                    <button
+                      type="button"
+                      className={isConfirming ? "danger-button confirming" : "danger-button"}
+                      disabled={isCurrentUser || deletingId === account.id}
+                      onClick={() => deleteUser(account)}
+                    >
+                      {isCurrentUser
+                        ? "החשבון הנוכחי"
+                        : deletingId === account.id
+                          ? "מוחק..."
+                          : isConfirming
+                            ? "אישור מחיקה לצמיתות"
+                            : "מחיקת משתמש"}
+                    </button>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </section>
   );
 }
@@ -1072,6 +1210,14 @@ export default function App() {
             <ProtectedRoute>
               <ProfilePage wishlistCount={wishlist.length} />
             </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin"
+          element={
+            <AdminRoute>
+              <AdminPage />
+            </AdminRoute>
           }
         />
         <Route path="*" element={<Navigate to="/" replace />} />

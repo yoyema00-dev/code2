@@ -35,7 +35,8 @@ function toSafeUser(authUser, profile) {
   return {
     id: authUser.id,
     email: authUser.email,
-    fullName: profile?.full_name ?? authUser.user_metadata?.full_name ?? authUser.email,
+    fullName: authUser.user_metadata?.full_name ?? profile?.full_name ?? authUser.email,
+    isAdmin: authUser.app_metadata?.role === "admin",
     createdAt: profile?.created_at ?? authUser.created_at,
     updatedAt: profile?.updated_at ?? authUser.updated_at,
   };
@@ -218,18 +219,26 @@ export function AuthProvider({ children }) {
     }
 
     const cleanName = fullName.trim();
-    const { data, error } = await supabase
-      .from("profiles")
-      .update({ full_name: cleanName, updated_at: new Date().toISOString() })
-      .eq("id", user.id)
-      .select("id, full_name, email, created_at, updated_at")
-      .single();
+    const { data: authData, error: authError } = await supabase.auth.updateUser({
+      data: { full_name: cleanName },
+    });
 
-    if (error) {
-      throw new Error(getAuthErrorMessage(error));
+    if (authError) {
+      throw new Error(getAuthErrorMessage(authError));
     }
 
-    const nextUser = toSafeUser({ ...user, user_metadata: { full_name: cleanName } }, data);
+    let profile = null;
+
+    try {
+      profile = await upsertProfile(authData.user, cleanName);
+    } catch (error) {
+      // Auth metadata is the durable source of truth for the editable display name.
+      // Keep profile-table sync best-effort so a missing row or restrictive RLS
+      // policy cannot make an otherwise valid account update fail.
+      console.warn("Could not sync the profiles table after updating the account", error);
+    }
+
+    const nextUser = toSafeUser(authData.user, profile);
     setUser(nextUser);
     return nextUser;
   };
